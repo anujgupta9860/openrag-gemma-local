@@ -1,0 +1,6 @@
+.env
+openrag/
+ollama.log
+ollama.pid
+langflow-credentials.txt
+.DS_Store
