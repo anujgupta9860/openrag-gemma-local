@@ -22,9 +22,22 @@ BASE_URL="http://localhost:${FRONTEND_PORT}"
 echo "Completing onboarding at $BASE_URL:"
 echo "  llm:       ollama / $CHAT_MODEL"
 echo "  embedding: ollama / $EMBED_MODEL"
-curl -sf -X POST "$BASE_URL/api/onboarding" \
+PAYLOAD="{\"llm_provider\":\"ollama\",\"llm_model\":\"$CHAT_MODEL\",\"embedding_provider\":\"ollama\",\"embedding_model\":\"$EMBED_MODEL\",\"ollama_endpoint\":\"$OLLAMA_ENDPOINT\"}"
+if ! curl -sf -X POST "$BASE_URL/api/onboarding" \
   -H 'Content-Type: application/json' \
-  -d "{\"llm_provider\":\"ollama\",\"llm_model\":\"$CHAT_MODEL\",\"embedding_provider\":\"ollama\",\"embedding_model\":\"$EMBED_MODEL\",\"ollama_endpoint\":\"$OLLAMA_ENDPOINT\"}"
+  -d "$PAYLOAD"; then
+  # -sf hides the server's reason; re-run the same POST verbosely so the
+  # actual error (validation, Ollama unreachable, ...) is visible.
+  echo
+  echo "ERROR: onboarding POST failed. Same request, without -f, to see why:"
+  echo "  curl -s -X POST $BASE_URL/api/onboarding -H 'Content-Type: application/json' -d '$PAYLOAD'"
+  echo "Server response:"
+  curl -s -X POST "$BASE_URL/api/onboarding" \
+    -H 'Content-Type: application/json' \
+    -d "$PAYLOAD" || true
+  echo
+  exit 1
+fi
 echo
 curl -s -X POST "$BASE_URL/api/onboarding/state" -H 'Content-Type: application/json' -d '{"current_step":4}' >/dev/null 2>&1 || true
 echo "Provider health:"
