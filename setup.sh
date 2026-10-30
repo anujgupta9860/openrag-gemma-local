@@ -126,16 +126,24 @@ if [ -z "$(get_env LANGFLOW_SUPERUSER_PASSWORD "$UENV")" ]; then
   echo "  Generated Langflow superuser password -> langflow-credentials.txt (git-ignored)."
 fi
 
-# Single-node OpenSearch: the backend waits for
-# OPENSEARCH_EXPECTED_DATA_NODE_COUNT data nodes (default 3) before it
-# will serve. Upstream's compose never passes this variable through from
-# .env, so inject it via a compose override.
-if [ ! -f "$UPSTREAM_DIR/docker-compose.override.yml" ]; then
+# Single-node OpenSearch: current backend images gate startup on a
+# node-count check that defaults to a 3-node cluster
+# (OPENSEARCH_EXPECTED_DATA_NODE_COUNT / _CLUSTER_MANAGER_COUNT /
+# _COORDINATING_NODE_COUNT, all default 3). On a single-node local
+# cluster the check never passes and the UI hangs on "Starting
+# OpenRAG...". Upstream's compose never passes these through from .env,
+# so inject them via a compose override: set the counts a single node
+# actually has, and disable the gate outright (upstream settings.py:
+# "set to false on small/single-node clusters").
+if ! grep -q "OPENSEARCH_NODE_COUNT_CHECK_ENABLED" "$UPSTREAM_DIR/docker-compose.override.yml" 2>/dev/null; then
   cat > "$UPSTREAM_DIR/docker-compose.override.yml" <<'EOF'
 services:
   openrag-backend:
     environment:
       OPENSEARCH_EXPECTED_DATA_NODE_COUNT: "1"
+      OPENSEARCH_EXPECTED_CLUSTER_MANAGER_COUNT: "1"
+      OPENSEARCH_EXPECTED_COORDINATING_NODE_COUNT: "0"
+      OPENSEARCH_NODE_COUNT_CHECK_ENABLED: "false"
 EOF
   echo "  Wrote docker-compose.override.yml (single-node OpenSearch fix)."
 fi

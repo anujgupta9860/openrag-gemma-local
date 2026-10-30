@@ -39,10 +39,13 @@ models and container images, so it takes a while; later runs are fast.
    and writes its `.env` for the Ollama provider.
 4. **The two local-run fixes** (both learned the hard way):
    - *Single-node OpenSearch:* the backend refuses to serve until the
-     cluster has 3 data nodes by default; a laptop has 1. Fixed via a
-     `docker-compose.override.yml` setting
-     `OPENSEARCH_EXPECTED_DATA_NODE_COUNT=1` (upstream's compose never
-     passes the variable through from `.env`).
+     cluster matches its expected node counts, which default to a
+     3-node cluster (data / cluster-manager / coordinating); a laptop
+     has 1 node. Fixed via a `docker-compose.override.yml` setting the
+     expected counts to 1/1/0 and `OPENSEARCH_NODE_COUNT_CHECK_ENABLED=false`
+     — upstream's documented off-switch for single-node clusters
+     (upstream's compose never passes these variables through from `.env`).
+     Without this the UI hangs forever on "Starting OpenRAG…".
    - *Langflow superuser:* with empty credentials Langflow exits, the
      backend dies waiting for it, and the UI hangs forever on
      "Starting OpenRAG…". `setup.sh` generates a random password into the
