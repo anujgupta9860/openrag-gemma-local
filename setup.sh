@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end local setup: Ollama + Gemma + OpenRAG.
+# End-to-end local setup: Ollama + OpenRAG, fully local models.
 #
 # One command takes a Mac (Apple Silicon recommended) from nothing to a
 # working OpenRAG chat UI at http://localhost:3000, fully local:
@@ -11,7 +11,10 @@
 #      it is missing (Homebrew if available, else the official installer).
 #   2. Starts Ollama (bound to 0.0.0.0 so the OpenRAG backend container can
 #      reach it via host.docker.internal) and pulls the chat + embedding
-#      models (default: gemma3:12b + nomic-embed-text).
+#      models (default: llama3.1:8b + nomic-embed-text). The chat model
+#      must be one Ollama flags as tool-capable: OpenRAG's onboarding
+#      validates tool calling and rejects models without it (Ollama
+#      0.40.13 does not flag gemma3 as tools-capable — verified).
 #   3. Clones OpenRAG at a pinned tag into ./openrag (git-ignored) and
 #      writes its .env for the Ollama provider.
 #   4. Applies the single-node OpenSearch fix (compose override) that a
@@ -30,7 +33,7 @@ cd "$(dirname "$0")"
 # ---------------------------------------------------------------- config
 [ -f .env ] && { set -a; . ./.env; set +a; }
 OPENRAG_TAG="${OPENRAG_TAG:-v0.3.0}"
-CHAT_MODEL="${CHAT_MODEL:-gemma3:12b}"
+CHAT_MODEL="${CHAT_MODEL:-llama3.1:8b}"
 EMBED_MODEL="${EMBED_MODEL:-nomic-embed-text}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 BASE_URL="http://localhost:${FRONTEND_PORT}"
@@ -89,6 +92,16 @@ ollama pull "$CHAT_MODEL"
 echo "  Pulling $EMBED_MODEL..."
 ollama pull "$EMBED_MODEL"
 ok "models ready"
+
+# OpenRAG onboarding validates that the chat model supports tool
+# calling, and rejects it otherwise ("<model> does not support tools").
+# Ollama reports capabilities per model — fail HERE with a clear
+# message instead of dying opaquely at the onboarding POST in step 5.
+SHOW="$(curl -s "$OLLAMA_LOCAL/api/show" -d "{\"name\":\"$CHAT_MODEL\"}")"
+if ! printf '%s' "$SHOW" | grep -q '"tools"'; then
+  die "Chat model '$CHAT_MODEL' is not flagged tool-capable by Ollama, and OpenRAG onboarding will reject it. Pick a tools-capable model (e.g. llama3.1:8b, qwen2.5:7b, qwen3:8b): set CHAT_MODEL in .env and re-run."
+fi
+ok "chat model is tool-capable (OpenRAG onboarding requirement)"
 
 # ---------------------------------------------------------------- 3. openrag clone + env
 step "3/6 OpenRAG ($OPENRAG_TAG) + configuration"
@@ -170,7 +183,14 @@ for i in $(seq 1 24); do
   fi
   sleep 5
 done
-[ -n "$ONBOARDED" ] || die "Onboarding POST failed. Check provider health: curl $BASE_URL/api/provider/health"
+if [ -z "$ONBOARDED" ]; then
+  echo "  Onboarding POST failed. Same request, without -f, to see why:"
+  echo "    curl -s -X POST $BASE_URL/api/onboarding -H 'Content-Type: application/json' -d '$PAYLOAD'"
+  echo "  Server response:"
+  curl -s -X POST "$BASE_URL/api/onboarding" -H 'Content-Type: application/json' -d "$PAYLOAD" || true
+  echo
+  die "Onboarding did not complete — see the server response above."
+fi
 # The UI wizard reads a step counter that can lag the stored settings;
 # nudge it to the final step (best effort, harmless if the route differs).
 curl -s -X POST "$BASE_URL/api/onboarding/state" -H 'Content-Type: application/json' -d '{"current_step":4}' >/dev/null 2>&1 || true

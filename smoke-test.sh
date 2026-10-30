@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke test for the local Ollama + Gemma + OpenRAG stack.
+# Smoke test for the local Ollama + OpenRAG stack.
 # Checks each layer separately so a failure says WHICH layer broke:
 #   1. Ollama answers and has both models pulled
 #   2. OpenRAG UI is up
@@ -8,7 +8,7 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 [ -f .env ] && { set -a; . ./.env; set +a; }
-CHAT_MODEL="${CHAT_MODEL:-gemma3:12b}"
+CHAT_MODEL="${CHAT_MODEL:-llama3.1:8b}"
 EMBED_MODEL="${EMBED_MODEL:-nomic-embed-text}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 BASE_URL="http://localhost:${FRONTEND_PORT}"

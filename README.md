@@ -1,16 +1,22 @@
-# OpenRAG + Gemma, fully local (Ollama)
+# OpenRAG, fully local (Ollama)
 
 One setup script takes a Mac from nothing to a working
 [OpenRAG](https://github.com/langflow-ai/openrag) chat UI at
 **http://localhost:3000**, powered entirely by local models served by
 [Ollama](https://ollama.com):
 
-- **Chat:** Google's **Gemma 3** (`gemma3:12b` by default) — open weights, runs on your machine
+- **Chat:** `llama3.1:8b` by default — open weights, runs on your machine
 - **Embeddings:** `nomic-embed-text` (768-dim)
 - **No API keys, no cloud, no accounts.** Nothing leaves the machine.
 
-Gemini is *not* involved: it's Google's closed, API-only family. Gemma is
-the open-weights sibling, and it's the one Ollama can serve.
+One hard requirement shapes the chat-model choice: OpenRAG's onboarding
+**validates tool calling**, and Ollama only flags some models as
+tool-capable. Google's Gemma 3 — the original pick here — is *not* one
+of them (verified on Ollama 0.40.13: onboarding fails with
+"gemma3:12b does not support tools"), so it can't be the chat model
+until Ollama flags it. Any tools-capable Ollama model works
+(llama3.1, qwen2.5, qwen3, …); `setup.sh` checks the capability up
+front and fails with a clear message instead of dying at onboarding.
 
 ## Quickstart
 
@@ -87,8 +93,10 @@ cd openrag && docker compose up -d --force-recreate && cd ..
 ./complete-onboarding.sh
 ```
 
-- Chat model: `gemma3:4b` (faster, weaker), `gemma3:12b` (default),
-  `gemma3:27b` (needs the RAM), or any Ollama model, e.g. `llama3.1:8b`.
+- Chat model: any Ollama model **flagged tool-capable** — `llama3.1:8b`
+  (default, proven), `qwen2.5:7b`, `qwen3:8b`, `llama3.1:70b` (needs the
+  RAM). ⚠️ `gemma3:*` does **not** qualify today — Ollama doesn't flag
+  it for tools, and OpenRAG onboarding rejects it.
 - ⚠️ **Embedding model:** vectors are model-specific. Changing
   `EMBED_MODEL` after ingesting means **re-ingesting every document**.
 
@@ -109,8 +117,9 @@ remove them with `ollama rm <model>`.
 | UI stuck on "Starting OpenRAG…" | Backend waiting on Langflow or OpenSearch. Check `cd openrag && docker compose logs -f openrag-backend`. The Langflow-password and node-count fixes above cover the known causes — make sure you started via `setup.sh`, not plain `docker compose up`. |
 | Provider health says Ollama unreachable | Ollama must listen beyond localhost for the container to reach it. `setup.sh` starts it with `OLLAMA_HOST=0.0.0.0:11434`; if you started Ollama yourself (app/menu bar), it may only bind 127.0.0.1 — quit it and re-run `setup.sh`. |
 | Wizard reappears in the UI | Onboarding is server-side state. Run `./complete-onboarding.sh`. |
-| Onboarding POST fails (setup step 5/6 or `complete-onboarding.sh`) | The scripts call the endpoint with `curl -sf`, which hides the reason. Re-run the same POST without `-f` to see the server's actual error: `curl -s -X POST http://localhost:3000/api/onboarding -H 'Content-Type: application/json' -d '{"llm_provider":"ollama","llm_model":"gemma3:12b","embedding_provider":"ollama","embedding_model":"nomic-embed-text","ollama_endpoint":"http://host.docker.internal:11434"}'` (`complete-onboarding.sh` now does this automatically on failure.) |
-| Chat answers are slow | You're on CPU or a big model. Drop to `gemma3:4b` (see Changing models). On Apple Silicon, make sure nothing else is holding the GPU. |
+| Onboarding POST fails (setup step 5/6 or `complete-onboarding.sh`) | The scripts call the endpoint with `curl -sf`, which hides the reason. Re-run the same POST without `-f` to see the server's actual error: `curl -s -X POST http://localhost:3000/api/onboarding -H 'Content-Type: application/json' -d '{"llm_provider":"ollama","llm_model":"llama3.1:8b","embedding_provider":"ollama","embedding_model":"nomic-embed-text","ollama_endpoint":"http://host.docker.internal:11434"}'` (`complete-onboarding.sh` now does this automatically on failure.) |
+| Chat answers are slow | You're on CPU or a big model. Drop to a smaller tools-capable model, e.g. `llama3.2:3b` (see Changing models). On Apple Silicon, make sure nothing else is holding the GPU. |
+| Onboarding fails with "does not support tools" | The chat model isn't flagged tool-capable by Ollama (true of `gemma3:*` today). Switch `CHAT_MODEL` to a tools-capable model (default `llama3.1:8b`) and re-run `./setup.sh`. |
 | Ingest/upload fails | docling-serve isn't running — see "adding your documents" above. It is a separate process by design. |
 | Port 3000 taken | Set `FRONTEND_PORT` in `.env` and re-run `setup.sh`. |
 
