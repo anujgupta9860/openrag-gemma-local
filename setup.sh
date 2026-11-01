@@ -160,6 +160,22 @@ services:
 EOF
   echo "  Wrote docker-compose.override.yml (single-node OpenSearch fix)."
 fi
+
+# Langflow ships with custom components blocked, but OpenRAG's ingest
+# flow is built from custom components ("Create Data" /
+# AdvancedDynamicFormBuilder), so every document ingest fails with
+# "Flow build blocked: custom components are not allowed" until
+# Langflow is told to allow them. Upstream's compose doesn't set this;
+# add it via the same override (separate guard so checkouts that
+# already have the OpenSearch block still pick this up).
+if ! grep -q "LANGFLOW_ALLOW_CUSTOM_COMPONENTS" "$UPSTREAM_DIR/docker-compose.override.yml" 2>/dev/null; then
+  cat >> "$UPSTREAM_DIR/docker-compose.override.yml" <<'EOF'
+  langflow:
+    environment:
+      LANGFLOW_ALLOW_CUSTOM_COMPONENTS: "true"
+EOF
+  echo "  Added Langflow custom-components fix to docker-compose.override.yml."
+fi
 ok "OpenRAG configured for Ollama / $CHAT_MODEL"
 
 # ---------------------------------------------------------------- 4. start stack
