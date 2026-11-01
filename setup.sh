@@ -254,7 +254,20 @@ def node_signature(flow):
         tpl = ((n.get("data") or {}).get("node") or {}).get("template") or {}
         code = (tpl.get("code") or {}).get("value") or ""
         code_hash = hashlib.sha1(code.encode()).hexdigest()[:12] if code else ""
-        sig.append((n.get("id", ""), (n.get("data") or {}).get("type", ""), code_hash))
+        # Template field values are part of the signature too: a vendored
+        # change may be a plain value flip (e.g. the Agent node's Stream
+        # toggle) with no code or structure change. Values are compared
+        # against the vendored template, so backend-side patching that
+        # only fills runtime globals (names, not values) does not churn.
+        values = {
+            k: v.get("value")
+            for k, v in tpl.items()
+            if isinstance(v, dict) and "value" in v
+        }
+        values_hash = hashlib.sha1(
+            json.dumps(values, sort_keys=True, default=str).encode()
+        ).hexdigest()[:12]
+        sig.append((n.get("id", ""), (n.get("data") or {}).get("type", ""), code_hash, values_hash))
     return sorted(sig)
 
 deleted = 0
