@@ -14,7 +14,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 [ -f .env ] && { set -a; . ./.env; set +a; }
 CHAT_MODEL="${CHAT_MODEL:-llama3.1:8b}"
-EMBED_MODEL="${EMBED_MODEL:-nomic-embed-text}"
+EMBED_MODEL="${EMBED_MODEL:-nomic-embed-text:latest}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 OLLAMA_ENDPOINT="${OLLAMA_ENDPOINT:-http://host.docker.internal:11434}"
 BASE_URL="http://localhost:${FRONTEND_PORT}"

@@ -9,7 +9,7 @@ set -uo pipefail
 cd "$(dirname "$0")"
 [ -f .env ] && { set -a; . ./.env; set +a; }
 CHAT_MODEL="${CHAT_MODEL:-llama3.1:8b}"
-EMBED_MODEL="${EMBED_MODEL:-nomic-embed-text}"
+EMBED_MODEL="${EMBED_MODEL:-nomic-embed-text:latest}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 BASE_URL="http://localhost:${FRONTEND_PORT}"
 FAIL=0

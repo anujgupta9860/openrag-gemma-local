@@ -11,7 +11,7 @@
 #      it is missing (Homebrew if available, else the official installer).
 #   2. Starts Ollama (bound to 0.0.0.0 so the OpenRAG backend container can
 #      reach it via host.docker.internal) and pulls the chat + embedding
-#      models (default: llama3.1:8b + nomic-embed-text). The chat model
+#      models (default: llama3.1:8b + nomic-embed-text:latest). The chat model
 #      must be one Ollama flags as tool-capable: OpenRAG's onboarding
 #      validates tool calling and rejects models without it (Ollama
 #      0.40.13 does not flag gemma3 as tools-capable — verified).
@@ -34,7 +34,13 @@ cd "$(dirname "$0")"
 [ -f .env ] && { set -a; . ./.env; set +a; }
 OPENRAG_TAG="${OPENRAG_TAG:-v0.3.0}"
 CHAT_MODEL="${CHAT_MODEL:-llama3.1:8b}"
-EMBED_MODEL="${EMBED_MODEL:-nomic-embed-text}"
+# The :latest tag is load-bearing, not cosmetic: Langflow registers Ollama
+# models under their full name:tag (nomic-embed-text:latest), and OpenRAG's
+# flow patcher matches the configured embedding model name exactly. With a
+# bare "nomic-embed-text" the patcher logs "Model nomic-embed-text not found
+# for provider Ollama", leaves every Langflow flow on its OpenAI default,
+# and document ingestion fails demanding an OpenAI API key.
+EMBED_MODEL="${EMBED_MODEL:-nomic-embed-text:latest}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 BASE_URL="http://localhost:${FRONTEND_PORT}"
 OLLAMA_HOST_PORT="11434"
