@@ -31,3 +31,22 @@ Flow IDs are unchanged from upstream (ingestion
 configuration (`LANGFLOW_INGEST_FLOW_ID` etc.) keeps pointing at the
 right flows. Refresh this folder from upstream `main` if the backend
 image generation moves again.
+
+## Local deviation (the only one)
+
+In `openrag_agent.json` and `openrag_nudges.json`, the
+`OpenAICompatibleLLM` component's `build_model()` passes
+`disable_streaming: True` to `ChatOpenAI` (search the component code
+for "openrag-gemma-local"). Reason: Ollama tool calls do not survive
+**streaming** through the backend's LiteLLM gateway — on both the
+native `ollama/` and `ollama_chat/` routes a streamed tool call is
+flattened into content text, so the agent prints raw tool-call JSON
+(`{"name": "search_documents", "arguments": {...}}`) instead of
+calling the tool. The identical calls non-streamed return proper
+`tool_calls` at every hop (Ollama `/api/chat`, Ollama
+`/v1/chat/completions`, LiteLLM `ollama/`). Verified 2026-11-01 on
+the Mac mini install. The cost is that chat answers arrive whole
+rather than token-by-token; correctness first for a local stack.
+Because the component *code* differs from upstream, `setup.sh` step
+4b's staleness check hashes component code as well as node structure,
+so this deviation propagates to existing installs on re-run.

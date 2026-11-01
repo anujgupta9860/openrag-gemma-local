@@ -247,8 +247,15 @@ except Exception:
 hdr = {"Authorization": "Bearer " + tok}
 
 def node_signature(flow):
-    nodes = (flow.get("data") or {}).get("nodes") or []
-    return sorted((n.get("id", ""), (n.get("data") or {}).get("type", "")) for n in nodes)
+    import hashlib
+
+    sig = []
+    for n in (flow.get("data") or {}).get("nodes") or []:
+        tpl = ((n.get("data") or {}).get("node") or {}).get("template") or {}
+        code = (tpl.get("code") or {}).get("value") or ""
+        code_hash = hashlib.sha1(code.encode()).hexdigest()[:12] if code else ""
+        sig.append((n.get("id", ""), (n.get("data") or {}).get("type", ""), code_hash))
+    return sorted(sig)
 
 deleted = 0
 for path in sorted(glob.glob("openrag-flows-current/*.json")):
