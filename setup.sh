@@ -16,7 +16,11 @@
 #      validates tool calling and rejects models without it (Ollama
 #      0.40.13 does not flag gemma3 as tools-capable — verified).
 #   3. Clones OpenRAG at a pinned tag into ./openrag (git-ignored) and
-#      writes its .env for the Ollama provider.
+#      writes its .env for the Ollama provider. Also installs the
+#      vendored current-generation flow templates
+#      (openrag-flows-current/) over the checkout's flows/ — see the
+#      step-3 comment for why the pinned tag's own flows cannot be used
+#      with the backend image this compose pulls.
 #   4. Applies the single-node OpenSearch fix (compose override) that a
 #      local 1-node cluster needs, generates the required Langflow
 #      superuser password, and starts the stack with docker compose.
@@ -182,6 +186,24 @@ if ! grep -q "LANGFLOW_ALLOW_CUSTOM_COMPONENTS" "$UPSTREAM_DIR/docker-compose.ov
 EOF
   echo "  Added Langflow custom-components fix to docker-compose.override.yml."
 fi
+# Flow templates: the pinned checkout's flows/ are an older generation
+# than the backend image this compose pulls (${OPENRAG_VERSION:-latest}).
+# The current backend converts documents itself (its own Docling phase)
+# and hands the flow a docling task id to fetch results by; the v0.3.0
+# ingestion flow instead waits for a file upload into Langflow that this
+# backend never performs (it calls the flow with file_paths=[]), so
+# DoclingRemote returns an empty DataFrame and ingestion dies three
+# hops later with "Column 'doc' not found in DataFrame. Available
+# columns: []" — verified end-to-end on the Mac mini install,
+# 2026-11-01. The repo therefore vendors the flow templates matching
+# the backend image (openrag-flows-current/, from upstream main
+# @ f00c103, 2026-10-30; same flow IDs, current components) and
+# installs them over the checkout's flows/ before the stack starts.
+# Step 4b handles installs whose Langflow already stored the old ones.
+if [ -d openrag-flows-current ]; then
+  cp openrag-flows-current/*.json "$UPSTREAM_DIR/flows/"
+  echo "  Installed current-generation flow templates over the $OPENRAG_TAG checkout's flows/."
+fi
 ok "OpenRAG configured for Ollama / $CHAT_MODEL"
 
 # ---------------------------------------------------------------- 4. start stack
@@ -194,6 +216,80 @@ for i in $(seq 1 72); do
 done
 curl -sf -o /dev/null "$BASE_URL" || die "UI did not come up at $BASE_URL. Inspect: cd $UPSTREAM_DIR && docker compose logs -f openrag-backend"
 ok "UI responding at $BASE_URL"
+
+# ---------------------------------------------------------------- 4b. refresh stored flows (upgrade path)
+# Langflow stores imported flows in its own database and does not
+# re-read changed files for flow IDs it already has, so an install that
+# previously imported the old-generation flows would keep running them
+# even with the vendored templates in flows/. Detect stored flows whose
+# node structure differs from the vendored templates (a generation
+# check — model patching changes template values, never node types),
+# delete just those via the Langflow API, and restart Langflow so it
+# imports the vendored files. No-op on first installs and on installs
+# already current; best effort throughout (never fail setup over it).
+step "4b/6 Checking Langflow for stale stored flows"
+if [ -f langflow-credentials.txt ] && command -v python3 >/dev/null 2>&1; then
+  LF_PW="$(grep -i '^password:' langflow-credentials.txt | head -1 | sed 's/^[^:]*: *//')"
+  REFRESH_OUT="$(LF_PW="$LF_PW" python3 - <<'PYEOF' 2>/dev/null || true
+import glob, json, os, urllib.parse, urllib.request
+
+base = "http://localhost:7860"
+pw = os.environ.get("LF_PW", "")
+if not pw:
+    print("FLOW_REFRESH_DELETED=0")
+    raise SystemExit(0)
+try:
+    data = urllib.parse.urlencode({"username": "langflow", "password": pw}).encode()
+    tok = json.load(urllib.request.urlopen(base + "/api/v1/login", data=data, timeout=10))["access_token"]
+except Exception:
+    print("FLOW_REFRESH_DELETED=0")
+    raise SystemExit(0)
+hdr = {"Authorization": "Bearer " + tok}
+
+def node_signature(flow):
+    nodes = (flow.get("data") or {}).get("nodes") or []
+    return sorted((n.get("id", ""), (n.get("data") or {}).get("type", "")) for n in nodes)
+
+deleted = 0
+for path in sorted(glob.glob("openrag-flows-current/*.json")):
+    try:
+        vendored = json.load(open(path))
+    except Exception:
+        continue
+    fid = vendored.get("id")
+    if not fid:
+        continue
+    try:
+        req = urllib.request.Request(base + "/api/v1/flows/" + fid, headers=hdr)
+        stored = json.load(urllib.request.urlopen(req, timeout=10))
+    except Exception:
+        continue  # not stored yet — Langflow imports the file as-is
+    if node_signature(stored) != node_signature(vendored):
+        try:
+            req = urllib.request.Request(base + "/api/v1/flows/" + fid, headers=hdr, method="DELETE")
+            urllib.request.urlopen(req, timeout=10)
+            deleted += 1
+            print("  deleted stale stored flow: " + str(vendored.get("name")))
+        except Exception:
+            pass
+print("FLOW_REFRESH_DELETED=" + str(deleted))
+PYEOF
+)"
+  printf '%s\n' "$REFRESH_OUT" | grep -v '^FLOW_REFRESH_DELETED=' || true
+  if printf '%s' "$REFRESH_OUT" | grep -qE '^FLOW_REFRESH_DELETED=[1-9]'; then
+    echo "  Restarting Langflow so it imports the vendored flow templates..."
+    ( cd "$UPSTREAM_DIR" && docker compose restart langflow )
+    for i in $(seq 1 36); do
+      if curl -sf -o /dev/null "http://localhost:7860"; then break; fi
+      sleep 5
+    done
+    curl -sf -o /dev/null "http://localhost:7860" || echo "  WARNING: Langflow is slow to return; onboarding below retries and may still succeed."
+  else
+    echo "  Stored flows are current (or none stored yet)."
+  fi
+else
+  echo "  Skipped (no Langflow credentials file or no python3)."
+fi
 
 # ---------------------------------------------------------------- 5. onboarding (no wizard)
 step "5/6 Completing onboarding server-side"
