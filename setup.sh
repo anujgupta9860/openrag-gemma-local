@@ -230,7 +230,8 @@ ok "UI responding at $BASE_URL"
 step "4b/6 Checking Langflow for stale stored flows"
 if [ -f langflow-credentials.txt ] && command -v python3 >/dev/null 2>&1; then
   LF_PW="$(grep -i '^password:' langflow-credentials.txt | head -1 | sed 's/^[^:]*: *//')"
-  REFRESH_OUT="$(LF_PW="$LF_PW" python3 - <<'PYEOF' 2>/dev/null || true
+  REFRESH_PY="$(mktemp)"
+  cat > "$REFRESH_PY" <<'PYEOF'
 import glob, json, os, urllib.parse, urllib.request
 
 base = "http://localhost:7860"
@@ -255,7 +256,7 @@ def node_signature(flow):
         code = (tpl.get("code") or {}).get("value") or ""
         code_hash = hashlib.sha1(code.encode()).hexdigest()[:12] if code else ""
         # Template field values are part of the signature too: a vendored
-        # change may be a plain value flip (e.g. the Agent node's Stream
+        # change may be a plain value flip (e.g. the Agent node Stream
         # toggle) with no code or structure change. Values are compared
         # against the vendored template, so backend-side patching that
         # only fills runtime globals (names, not values) does not churn.
@@ -294,7 +295,8 @@ for path in sorted(glob.glob("openrag-flows-current/*.json")):
             pass
 print("FLOW_REFRESH_DELETED=" + str(deleted))
 PYEOF
-)"
+  REFRESH_OUT="$(LF_PW="$LF_PW" python3 "$REFRESH_PY" 2>/dev/null || true)"
+  rm -f "$REFRESH_PY"
   printf '%s\n' "$REFRESH_OUT" | grep -v '^FLOW_REFRESH_DELETED=' || true
   if printf '%s' "$REFRESH_OUT" | grep -qE '^FLOW_REFRESH_DELETED=[1-9]'; then
     echo "  Restarting Langflow so it imports the vendored flow templates..."
